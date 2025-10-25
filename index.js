@@ -4,52 +4,38 @@ import fetch from "node-fetch";
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-app.get("/api/futbin", async (req, res) => {
+/**
+ * Endpoint per leggere dati da FutNext
+ * Esempio:
+ * /api/futnext?url=https://www.futnext.com/player/lamine-yamal
+ */
+app.get("/api/futnext", async (req, res) => {
   try {
-    const { url, id } = req.query;
-    const targetUrl = url || (id ? `https://www.futbin.com/26/player/${id}` : null);
-    if (!targetUrl)
-      return res.status(400).json({ error: "Missing Futbin ID or URL" });
+    const { url } = req.query;
+    if (!url) return res.status(400).json({ error: "Missing FutNext URL" });
 
-    const html = await fetch(targetUrl, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; FC26Analyzer/1.0)" },
-    }).then((r) => r.text());
+    const html = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; FC26Analyzer/1.0)" }
+    }).then(r => r.text());
 
-    // cerca qualsiasi script JSON che contenga "pageProps"
-    const matches = html.match(
-      /<script[^>]*type="application\/json"[^>]*>([\s\S]*?"pageProps"[\s\S]*?)<\/script>/
-    );
-    if (!matches) return res.status(404).json({ error: "No data block found" });
+    // Cerca il blocco JSON interno (Next.js style)
+    const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.*?)<\/script>/);
+    if (!match) return res.status(404).json({ error: "No data found" });
 
-    const jsonText = matches[1];
-    let pageData;
-    try {
-      pageData = JSON.parse(jsonText);
-    } catch (e) {
-      return res.status(500).json({ error: "Invalid JSON structure" });
-    }
+    const data = JSON.parse(match[1]);
+    const props = data?.props?.pageProps || {};
 
-    const playerData = pageData?.props?.pageProps?.player || {};
-    const prices = pageData?.props?.pageProps?.prices || {};
-
-    const player = playerData?.name || "Unknown";
-    const ps = Number(prices?.ps?.LCPrice) || 0;
-    const xbox = Number(prices?.xbox?.LCPrice) || 0;
-    const pc = Number(prices?.pc?.LCPrice) || 0;
+    // Estrai info giocatore e prezzi
+    const player = props?.player?.name || props?.playerName || "Unknown";
+    const ps = Number(props?.prices?.ps || props?.market?.ps?.price || 0);
+    const xbox = Number(props?.prices?.xbox || props?.market?.xbox?.price || 0);
+    const pc = Number(props?.prices?.pc || props?.market?.pc?.price || 0);
 
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.json({
-      player,
-      ps,
-      xbox,
-      pc,
-      updated: new Date().toISOString(),
-    });
+    res.json({ player, ps, xbox, pc, updated: new Date().toISOString() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.listen(PORT, () =>
-  console.log(`✅ Futbin Bridge API running on port ${PORT}`)
-);
+app.listen(PORT, () => console.log(`✅ FUTNEXT Bridge API running on port ${PORT}`));
